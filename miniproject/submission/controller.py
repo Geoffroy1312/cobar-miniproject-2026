@@ -12,7 +12,16 @@ class Controller:
     def step(self, sim: MiniprojectSimulation):
         # implement your control algorithm here
         olfaction = sim.get_olfaction(sim.fly.name)
+
         # get other observations as needed
-        drives = np.array([1.0, 1.0])  # replace with your control logic
+        vision = sim.get_vision(sim.fly.name)
+        proprioception = sim.get_proprioception(sim.fly.name)
+        print("Olfaction:", olfaction)
+        print("Vision:", vision)
+        print("Proprioception:", proprioception)
+
+        drive_left = 0.0
+        drive_right = 0.0
+        drives = np.array([drive_left, drive_right])  # replace with your control logic
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
