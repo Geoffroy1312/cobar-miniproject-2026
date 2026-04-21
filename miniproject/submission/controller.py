@@ -2,6 +2,52 @@ import numpy as np
 from miniproject.simulation import MiniprojectSimulation
 
 
+def odor_intensity_to_control_signal(
+    odor_intensities,
+    attractive_gain=-500,
+    aversive_gain=80,
+):
+    """Convert odor sensor readings to a turning control signal."""
+    
+    # Always process the first odor dimension (attractive)
+    attractive_intensities = np.average(
+        odor_intensities[:, 0].reshape(2, 2), axis=0, weights=[9, 1]
+    )
+    attractive_bias = (
+        attractive_gain
+        * (attractive_intensities[0] - attractive_intensities[1])
+        / attractive_intensities.mean()
+        if attractive_intensities.mean() != 0
+        else 0
+    )
+
+    # Check if a second odor dimension (aversive) exists
+    if odor_intensities.shape[1] > 1:
+        aversive_intensities = np.average(
+            odor_intensities[:, 1].reshape(2, 2), axis=0, weights=[10, 0]
+        )
+        aversive_bias = (
+            aversive_gain
+            * (aversive_intensities[0] - aversive_intensities[1])
+            / aversive_intensities.mean()
+            if aversive_intensities.mean() != 0
+            else 0
+        )
+    else:
+        aversive_bias = 0
+
+    effective_bias = aversive_bias + attractive_bias
+    effective_bias_norm = np.tanh(effective_bias**2) * np.sign(effective_bias)
+    assert np.sign(effective_bias_norm) == np.sign(effective_bias)
+
+    control_signal = np.ones(2)
+    side_to_modulate = int(effective_bias_norm > 0)
+    modulation_amount = np.abs(effective_bias_norm) * 0.8
+    control_signal[side_to_modulate] -= modulation_amount
+    
+    return control_signal
+
+
 class Controller:
     def __init__(self, sim: MiniprojectSimulation):
         # you may also implement your own turning controller
@@ -14,14 +60,10 @@ class Controller:
         olfaction = sim.get_olfaction(sim.fly.name)
 
         # get other observations as needed
-        vision = sim.get_vision(sim.fly.name)
-        proprioception = sim.get_proprioception(sim.fly.name)
-        print("Olfaction:", olfaction)
-        print("Vision:", vision)
-        print("Proprioception:", proprioception)
+      
 
-        drive_left = 0.0
-        drive_right = 0.0
-        drives = np.array([drive_left, drive_right])  # replace with your control logic
+        
+        drives = odor_intensity_to_control_signal(olfaction)
+        
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
