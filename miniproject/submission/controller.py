@@ -1,5 +1,66 @@
 import numpy as np
 from miniproject.simulation import MiniprojectSimulation
+import cv2
+import matplotlib.pyplot as plt
+
+def detect_triangles(image, eye="left"):
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+    
+    # 2. Extraire uniquement le canal V (Index 2)
+    # Cela donne une image en niveaux de gris basée uniquement sur la luminosité
+    v_channel = hsv_image[:, :, 2].copy() 
+    
+    # 3. Identifier les pixels verts
+    # On définit la plage du vert. On garde une saturation basse (ex: 40) 
+    # pour s'assurer de bien attraper les verts même un peu délavés.
+    lower_green = np.array([35, 40, 0])
+    upper_green = np.array([85, 255, 255])
+    
+    # green_mask vaut 255 (blanc) là où c'est vert, et 0 (noir) ailleurs
+    green_mask = cv2.inRange(hsv_image, lower_green, upper_green)
+    
+    # 4. Soustraire le vert du canal V
+    # Partout où le masque vert est activé (supérieur à 0), on force le pixel du canal V à être noir (0)
+    v_channel[green_mask <= 0] = 0
+    #augmenter la luminosité du canal V pour mieux voir les détails
+    v_channel = cv2.equalizeHist(v_channel)
+    v_channel[v_channel <= 250] = 0
+    #remove small blobs
+    #kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    #v_channel = cv2.morphologyEx(v_channel, cv2.MORPH_OPEN, kernel)
+    #v_channel = cv2.morphologyEx(v_channel, cv2.MORPH_CLOSE, kernel)
+
+    #detecte les triangles 
+    contours, _ = cv2.findContours(v_channel, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    plot_image = cv2.cvtColor(v_channel, cv2.COLOR_GRAY2RGB)
+
+    big_contours = []
+    for contour in contours:
+        epsilon = 0.04 * cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, epsilon, True)
+        if len(approx) >= 2 and cv2.arcLength(approx, True) > 15:  # Si le contour a 3 sommets, c'est un triangle
+            
+            #calculate the distance between the contour and the left or right edge of the image
+            if eye == "right": 
+                distance = approx[:, 0, 0].min()  # Distance au bord gauche
+            else:
+                distance = plot_image.shape[1] - approx[:, 0, 0].max()  # Distance au bord droit
+
+            #size is the vertical size of the contour
+            
+            if len(approx) >= 2:
+                size = approx[:, 0, 1].max() - approx[:, 0, 1].min()
+            else:
+                size = 0
+            big_contours.append([approx, distance, size])
+
+    # for contour in big_contours:
+    #     #affiche les contour de l'image dans la couleur de la distance (plus c'est rouge plus c'est proche du bord)
+    #     valeur_rouge = 255 - int(contour[2] * 2550 / plot_image.shape[0])
+    #     cv2.drawContours(plot_image, [contour[0]], -1, (valeur_rouge, 0, 0), 2)
+    # imgplot = plt.imshow(plot_image)
+    # plt.show()
+    return big_contours
 
 
 def odor_intensity_to_control_signal(
@@ -58,12 +119,28 @@ class Controller:
     def step(self, sim: MiniprojectSimulation):
         # implement your control algorithm here
         olfaction = sim.get_olfaction(sim.fly.name)
+        vision = sim.get_raw_vision(sim.fly.name)
+        vision_left = vision[0]
+        vision_right = vision[1]
+        contours_left = detect_triangles(vision_left)
+        contours_right = detect_triangles(vision_right)
 
-        # get other observations as needed
-      
-
+        
         
         drives = odor_intensity_to_control_signal(olfaction)
         
+
+        #give a penatly to the control signal if there is a triangle detected in the left eye and a bonus if there is a triangle detected in the right eye
+        for contour in contours_right:
+            if contour[2] > 10: #if the triangle is big enough
+                if contour[1] > vision_right.shape[0] / 5: #if the triangle is closer to the right
+                    drives[1] *= 1.5*(vision_right.shape[0] - contour[1]) / vision_right.shape[0] #closeer to the left in right eye gives bonus to left drive
+                #print("triangle detected in right eye, applying bonus to left drive")
+        for contour in contours_left:
+            if contour[2] > 10: #if the triangle is big enough
+                if contour[1] < vision_left.shape[0] / 5: #if the triangle is closer to the left in the left eye
+                    drives[0] *= 1.5*(vision_left.shape[0] - contour[1]) / vision_left.shape[0] #closer to the right in left eye gives bonus to right drive
+                #print("triangle detected in left eye, applying bonus to right drive")
+
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
