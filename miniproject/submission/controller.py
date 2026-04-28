@@ -3,7 +3,7 @@ from miniproject.simulation import MiniprojectSimulation
 import cv2
 import matplotlib.pyplot as plt
 
-def detect_triangles(image):
+def detect_triangles(image, eye="left"):
     hsv_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
     
     # 2. Extraire uniquement le canal V (Index 2)
@@ -32,15 +32,34 @@ def detect_triangles(image):
 
     #detecte les triangles 
     contours, _ = cv2.findContours(v_channel, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    plot_image = cv2.cvtColor(v_channel, cv2.COLOR_GRAY2RGB)
+
     big_contours = []
     for contour in contours:
         epsilon = 0.04 * cv2.arcLength(contour, True)
         approx = cv2.approxPolyDP(contour, epsilon, True)
-        if len(approx) >= 3 and cv2.contourArea(approx) > 20:  # Si le contour a 3 sommets, c'est un triangle
+        if len(approx) >= 2 and cv2.arcLength(approx, True) > 15:  # Si le contour a 3 sommets, c'est un triangle
             
-            #cv2.drawContours(image, [approx], 0, (255, 0, 0), 2)  # Dessine le triangle en rouge
-            big_contours.append(approx)
-    
+            #calculate the distance between the contour and the left or right edge of the image
+            if eye == "right": 
+                distance = approx[:, 0, 0].min()  # Distance au bord gauche
+            else:
+                distance = plot_image.shape[1] - approx[:, 0, 0].max()  # Distance au bord droit
+
+            #size is the vertical size of the contour
+            
+            if len(approx) >= 2:
+                size = approx[:, 0, 1].max() - approx[:, 0, 1].min()
+            else:
+                size = 0
+            big_contours.append([approx, distance, size])
+
+    # for contour in big_contours:
+    #     #affiche les contour de l'image dans la couleur de la distance (plus c'est rouge plus c'est proche du bord)
+    #     valeur_rouge = 255 - int(contour[2] * 2550 / plot_image.shape[0])
+    #     cv2.drawContours(plot_image, [contour[0]], -1, (valeur_rouge, 0, 0), 2)
+    # imgplot = plt.imshow(plot_image)
+    # plt.show()
     return big_contours
 
 
@@ -105,24 +124,23 @@ class Controller:
         vision_right = vision[1]
         contours_left = detect_triangles(vision_left)
         contours_right = detect_triangles(vision_right)
-        #check if a triangle bigger than a threshold is detected in the left eye, then turn left, if in the right eye, turn right
-        if len(contours_left) > 0 and len(contours_right) == 0:
-            olfaction[:, 0] *= 1.5
-            
-        elif len(contours_right) > 0 and len(contours_left) == 0:
-            olfaction[:, 0] *= 0.5
-            
-        elif len(contours_left) > 0 and len(contours_right) > 0:
-            olfaction[:, 0] *= 1.2
-            
-                
-        else:
-            olfaction[:, 0] *= 1
-            
-      
 
+        
         
         drives = odor_intensity_to_control_signal(olfaction)
         
+
+        #give a penatly to the control signal if there is a triangle detected in the left eye and a bonus if there is a triangle detected in the right eye
+        for contour in contours_right:
+            if contour[2] > 10: #if the triangle is big enough
+                if contour[1] > vision_right.shape[0] / 5: #if the triangle is closer to the right
+                    drives[1] *= 1.5*(vision_right.shape[0] - contour[1]) / vision_right.shape[0] #closeer to the left in right eye gives bonus to left drive
+                #print("triangle detected in right eye, applying bonus to left drive")
+        for contour in contours_left:
+            if contour[2] > 10: #if the triangle is big enough
+                if contour[1] < vision_left.shape[0] / 5: #if the triangle is closer to the left in the left eye
+                    drives[0] *= 1.5*(vision_left.shape[0] - contour[1]) / vision_left.shape[0] #closer to the right in left eye gives bonus to right drive
+                #print("triangle detected in left eye, applying bonus to right drive")
+
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
