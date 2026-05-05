@@ -28,14 +28,14 @@ def parse_args():
         "-l",
         "--level",
         type=int,
-        default=4,
+        default=2,
         help="The level of the simulation to run. Default is 0.",
     )
     parser.add_argument(
         "-s",
         "--seed",
         type=int,
-        default=0,
+        default=42,
         help="The random seed for the simulation. Default is 0.",
     )
     parser.add_argument(
@@ -106,8 +106,9 @@ def main():
         if game_state.get_quit():
             break
 
-        joint_angles, adhesion_signals = controller.step(sim)
+        joint_angles, adhesion_signals, turning_right, turning_left, drives_from_olfaction = controller.step(sim)
         #print(joint_angles)
+        print(drives_from_olfaction)
         
         sim.set_actuator_inputs(sim.fly.name, ActuatorType.POSITION, joint_angles)
         sim.set_actuator_inputs(sim.fly.name, ActuatorType.ADHESION, adhesion_signals)

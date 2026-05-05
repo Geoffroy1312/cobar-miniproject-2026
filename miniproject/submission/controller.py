@@ -141,7 +141,7 @@ class Controller:
             # print("contour right hauteur: ", contour[2])
             # print("contour right distance: ", contour[1])
             if contour[2] > 100: #if the triangle is big enough
-                if contour[1] < vision_right.shape[0] / 4: #if the triangle is closer to the right
+                if contour[1] < vision_right.shape[1] / 4: #if the triangle is closer to the right
                     ratio = contour[2]/contour[1] if contour[1] != 0 else 0
                     # print("ratio right: ", ratio)
                     if ratio > max_ratio_right:
@@ -158,7 +158,7 @@ class Controller:
             # print("contour left hauteur: ", contour[2])
             # print("contour left distance: ", contour[1])
             if contour[2] > 100: #if the triangle is big enough
-                if contour[1] < vision_left.shape[0] / 4: #if the triangle is closer to the left in the left eye
+                if contour[1] < vision_left.shape[1] / 4: #if the triangle is closer to the left in the left eye
                     ratio = contour[2]/contour[1] if contour[1] != 0 else 0
                     # print("ratio left: ", ratio)
                     if ratio > max_ratio_left:
@@ -198,21 +198,22 @@ class Controller:
         
 
         if max_ratio_right > 0 or max_ratio_left > 0:
-            if drives_from_olfaction[0] < (drives_from_olfaction[1] - 0.5): #bigger drive on the right => turn left
-                drives[1] = 1*(vision_left.shape[0] - distance) / vision_left.shape[0] #bonus for right drive
-                drives[0] = -1*(vision_left.shape[0] - distance) / vision_left.shape[0] #penalty for left drive
+            if drives_from_olfaction[0] < (drives_from_olfaction[1] - 0.2): #bigger drive on the right => turn left
+                drives[1] = 1*(vision_left.shape[1] - distance) / vision_left.shape[0] #bonus for right drive
+                drives[0] = -1*(vision_left.shape[1] - distance) / vision_left.shape[0] #penalty for left drive
                 turning_right = False
                 turning_left = True
-            elif (drives_from_olfaction[0] - 0.5) > drives_from_olfaction[1]:
-                drives[0] = 1*(vision_right.shape[0] - distance) / vision_right.shape[0] #bonus for left drive
-                drives[1] = -1*(vision_right.shape[0] - distance) / vision_right.shape[0] #penalty for right drive
+            elif (drives_from_olfaction[0] - 0.2) > drives_from_olfaction[1]:
+                # print(drives_from_olfaction)
+                drives[0] = 1*(vision_right.shape[1] - distance) / vision_right.shape[0] #bonus for left drive
+                drives[1] = -1*(vision_right.shape[1] - distance) / vision_right.shape[0] #penalty for right drive
                 turning_left = False
                 turning_right = True
-            else: #if the food is more or less in front, always turn left
+            else: #if the food is more or less in front, always turn right
                 # print("food is more or less in front, always turn left")
-                drives[1] = 3*(vision_left.shape[0] - distance) / vision_left.shape[0] #bonus for right drive
-                drives[0] = -3*(vision_left.shape[0] - distance) / vision_left.shape[0] #penalty for left drive
-                turning_left = True
+                drives[0] = -1*(vision_left.shape[1] - distance) / vision_left.shape[0] #bonus for right drive
+                drives[1] = 1*(vision_left.shape[1] - distance) / vision_left.shape[0] #penalty for left drive
+                turning_left = False
                 turning_right = False
 
         else:
