@@ -1,14 +1,15 @@
 import argparse
 
 import numpy as np
+import tqdm
 
 from flygym.compose import ActuatorType
-from miniproject.interactive import GameState
 from miniproject import MiniprojectSimulation
 
 from submission.controller import Controller
 
 WINDOW_NAME = "COBAR 2026 Miniproject"
+MAX_NUM_STEPS = 100_000
 
 
 def parse_args():
@@ -50,14 +51,16 @@ def parse_args():
         action=argparse.BooleanOptionalAction,
         help="Whether to also render what the fly sees from its perspective.",
     )
+    parser.add_argument(
+        "--dont-render",
+        action=argparse.BooleanOptionalAction,
+        help="Don't render anything, just run the simulation and print the result.",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-
-    # Game state and control setup
-    game_state = GameState()
 
     sim = MiniprojectSimulation(
         level=args.level,
@@ -65,53 +68,69 @@ def main():
     )
     controller = Controller(sim)
 
-    print("Getting controllers")
-    if args.dont_use_pygame_rendering:
-        from miniproject.interactive.controls_pynput import KeyboardControlPynput
-        import cv2
+    if not args.dont_render:
+        if args.dont_use_pygame_rendering:
+            import cv2
 
-        controls = KeyboardControlPynput(game_state)
-        cv2.namedWindow(
-            WINDOW_NAME,
-        )
-        cv2.setWindowProperty(
-            WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
-        )
+            cv2.namedWindow(
+                WINDOW_NAME,
+            )
+            cv2.setWindowProperty(
+                WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
+            )
 
-        def render(frame: np.ndarray):
-            cv2.imshow(WINDOW_NAME, frame[..., ::-1])  # convert RGB to BGR for opencv
-            cv2.waitKey(1)
+            def render(frame: np.ndarray):
+                cv2.imshow(
+                    WINDOW_NAME, frame[..., ::-1]
+                )  # convert RGB to BGR for opencv
+                cv2.waitKey(1)
 
-    else:
-        from miniproject.interactive import KeyboardControl
-        import pygame
+            def check_quit():
+                try:
+                    if not cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE):
+                        cv2.destroyAllWindows()
+                        return True
+                except:
+                    cv2.destroyAllWindows()
+                    return True
+                return False
+        else:
+            import pygame
 
-        pygame.init()
+            pygame.init()
 
-        controls = KeyboardControl(game_state)
-        display_size = (1024, 1024 if args.render_fly_vision else 512)
-        screen = pygame.display.set_mode(display_size)
-        pygame.display.set_caption(WINDOW_NAME)
+            display_size = (1024, 1024 if args.render_fly_vision else 512)
+            screen = pygame.display.set_mode(display_size)
+            pygame.display.set_caption(WINDOW_NAME)
 
-        def get_controller_gains():
-            events = pygame.event.get()
-            controls.process_events(events)
+            def render(frame: np.ndarray):
+                frame_surface = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
+                if frame_surface.get_size() != display_size:
+                    frame_surface = pygame.transform.smoothscale(
+                        frame_surface, display_size
+                    )
+                screen.blit(frame_surface, (0, 0))
+                pygame.display.flip()
 
-        def render(frame: np.ndarray):
-            frame_surface = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
-            if frame_surface.get_size() != display_size:
-                frame_surface = pygame.transform.smoothscale(
-                    frame_surface, display_size
-                )
-            screen.blit(frame_surface, (0, 0))
-            pygame.display.flip()
+            def check_quit():
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        pygame.quit()
+                        return True
+                return False
 
-    step = 0
-    while not game_state.get_quit():
-        if not args.dont_use_pygame_rendering:
-            controls.process_events(pygame.event.get())
+    def got_to_food():
+        banana_xy = sim.world.banana_xy
+        fly_xy = np.array(sim.get_body_positions(sim.fly.name)[0][:2])
+        dist = np.sqrt(np.sum((fly_xy - banana_xy) ** 2))
+        return dist <= 3
 
-        if game_state.get_quit():
+    for step in tqdm.tqdm(range(MAX_NUM_STEPS)):
+        if not args.dont_render and check_quit():
+            print("Quit")
+            break
+        elif got_to_food():
+            print(f"Got to goal in {step} timesteps.")
             break
 
         joint_angles, adhesion_signals = controller.step(sim)
@@ -119,7 +138,7 @@ def main():
         sim.set_actuator_inputs(sim.fly.name, ActuatorType.ADHESION, adhesion_signals)
         sim.step()
 
-        if sim.render_as_needed():
+        if not args.dont_render and sim.render_as_needed():
             # Render the latest RGB frame from flygym into the pygame window.
             frame = np.concatenate(
                 [frames[-1] for frames in sim.renderer.frames.values()], axis=-2
@@ -136,12 +155,8 @@ def main():
                 )
                 frame = np.vstack((fly_vision, frame))
             render(frame)
-        step += 1
-
-    controls.quit()
-
-    if not args.dont_use_pygame_rendering:
-        pygame.quit()
+    else:
+        print("Took too long")
 
 
 if __name__ == "__main__":
