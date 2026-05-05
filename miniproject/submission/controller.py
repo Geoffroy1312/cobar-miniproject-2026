@@ -2,6 +2,21 @@ import numpy as np
 from miniproject.simulation import MiniprojectSimulation
 import cv2
 
+def detect_dragonfly(img):
+    dragonfly_detected = False
+    
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    lower_red = np.array([0, 100, 100])
+    upper_red = np.array([10, 255, 255])
+    mask = cv2.inRange(hsv, lower_red, upper_red)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    if len(contours) > 0:
+        dragonfly_detected = True
+
+    
+    return dragonfly_detected
+
 def detect_triangles_combined(image):
     """
     Détecte les triangles sur une image concaténée (gauche + droite).
@@ -67,7 +82,7 @@ def contour_to_aversive_odor(best_contour):
 def odor_intensity_to_control_signal(
     odor_intensities,
     attractive_gain=-1000,
-    aversive_gain=20,
+    aversive_gain=150,
 ):
     """Convert odor sensor readings to a turning control signal."""
 
@@ -100,9 +115,9 @@ def odor_intensity_to_control_signal(
     effective_bias_norm = np.tanh(effective_bias**2) * np.sign(effective_bias)
     assert np.sign(effective_bias_norm) == np.sign(effective_bias)
 
-    control_signal = np.ones(2)*2.0
+    control_signal = np.ones(2)*1.2
     side_to_modulate = int(effective_bias_norm > 0)
-    modulation_amount = np.abs(effective_bias_norm) * 1.6
+    modulation_amount = np.abs(effective_bias_norm) * 0.8*1.2
     control_signal[side_to_modulate] -= modulation_amount
 
     return control_signal
@@ -122,7 +137,8 @@ class Controller:
         
         # Détection de tous les contours
         contours = detect_triangles_combined(combined_vision)
-
+        if detect_dragonfly(combined_vision):
+            print("Dragonfly detected!")
         # ---------------------------------------------------------
         # RECHERCHE DU MEILLEUR CONTOUR (Le plus haut et le plus au milieu)
         # ---------------------------------------------------------
