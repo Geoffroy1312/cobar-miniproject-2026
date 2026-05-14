@@ -199,14 +199,14 @@ class Controller:
 
         if max_ratio_right > 0 or max_ratio_left > 0:
             if drives_from_olfaction[0] < (drives_from_olfaction[1] - 0.2): #bigger drive on the right => turn left
-                drives[1] = 1*(vision_left.shape[1] - distance) / vision_left.shape[0] #bonus for right drive
-                drives[0] = -1*(vision_left.shape[1] - distance) / vision_left.shape[0] #penalty for left drive
+                drives[1] += 1*(vision_left.shape[1] - distance) / vision_left.shape[0] #bonus for right drive
+                drives[0] += -1*(vision_left.shape[1] - distance) / vision_left.shape[0] #penalty for left drive
                 turning_right = False
                 turning_left = True
             elif (drives_from_olfaction[0] - 0.2) > drives_from_olfaction[1]:
                 # print(drives_from_olfaction)
-                drives[0] = 1*(vision_right.shape[1] - distance) / vision_right.shape[0] #bonus for left drive
-                drives[1] = -1*(vision_right.shape[1] - distance) / vision_right.shape[0] #penalty for right drive
+                drives[0] += 1*(vision_right.shape[1] - distance) / vision_right.shape[0] #bonus for left drive
+                drives[1] += -1*(vision_right.shape[1] - distance) / vision_right.shape[0] #penalty for right drive
                 turning_left = False
                 turning_right = True
             else: #if the food is more or less in front, always turn right
@@ -215,6 +215,12 @@ class Controller:
                 drives[1] = 1*(vision_left.shape[1] - distance) / vision_left.shape[0] #penalty for left drive
                 turning_left = False
                 turning_right = False
+            # drives[0] = -1*(vision_left.shape[1] - distance) / vision_left.shape[0] #bonus for right drive
+            # drives[1] = 1*(vision_left.shape[1] - distance) / vision_left.shape[0] #penalty for left drive
+            # drives[0] = 0.5*drives_from_olfaction[0]
+            # drives[1] = 2.5*drives_from_olfaction[1]
+            turning_left = True
+            turning_right = False
 
         else:
             drives = drives_from_olfaction
