@@ -1,6 +1,7 @@
 import numpy as np
 from torch import dist
 from miniproject.simulation import MiniprojectSimulation
+from submission.vision_model import FlyVisionModel
 import cv2
 
 def detect_dragonfly(img):
@@ -18,48 +19,6 @@ def detect_dragonfly(img):
     
     return dragonfly_detected
 
-# def detect_triangles_combined(image):
-#     """
-#     Détecte les triangles sur une image concaténée (gauche + droite).
-#     La distance retournée est négative si le triangle est à gauche, positive s'il est à droite.
-#     """
-#     hsv_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-
-#     # Extraire le canal V
-#     v_channel = hsv_image[:, :, 2].copy()
-
-#     # Identifier les pixels verts
-#     lower_green = np.array([35, 40, 0])
-#     upper_green = np.array([85, 255, 255])
-#     green_mask = cv2.inRange(hsv_image, lower_green, upper_green)
-
-#     # Soustraire le vert du canal V
-#     v_channel[green_mask <= 0] = 0
-#     v_channel = cv2.equalizeHist(v_channel)
-#     v_channel[v_channel <= 250] = 0
-
-#     # Détecte les contours
-#     contours, _ = cv2.findContours(v_channel, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-#     # Centre de l'image globale
-#     center_image_x = image.shape[1] / 2.0
-
-#     big_contours = []
-#     for contour in contours:
-#         epsilon = 0.04 * cv2.arcLength(contour, True)
-#         approx = cv2.approxPolyDP(contour, epsilon, True)
-        
-#         if len(approx) >= 2 and cv2.arcLength(approx, True) > 15:
-#             contour_center_x = np.mean(approx[:, 0, 0])
-#             distance = contour_center_x - center_image_x
-#             size = approx[:, 0, 1].max() - approx[:, 0, 1].min()
-            
-#             big_contours.append([approx, distance, size])
-
-#     return big_contours
-
-import cv2
-import numpy as np
 
 def detect_triangles_combined(image):
     """
@@ -134,12 +93,6 @@ def detect_triangles_combined(image):
 
     v_channel = cv2.bitwise_or(v_channel, v_channel2)
 
-    
-
-
-   
-    
-    
     # Détecte les contours
     contours, _ = cv2.findContours(v_channel, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
@@ -170,8 +123,6 @@ def detect_triangles_combined(image):
         
       
     return big_contours
-
-
 
 
 def contour_to_aversive_odor(best_contour):
@@ -246,6 +197,7 @@ class Controller:
         self.step_count = 0
         self.best_contours = []
         self.contours = []
+        self.vision_model = FlyVisionModel()
 
         
     def step(self, sim: MiniprojectSimulation):
@@ -256,8 +208,8 @@ class Controller:
             vision = sim.get_raw_vision(sim.fly.name)
             combined_vision = np.hstack((vision[0], vision[1]))
             
-            # Détection de tous les contours
-            self.contours = detect_triangles_combined(combined_vision)
+            # Utiliser le modèle de vision pour détecter l'herbe
+            self.contours = self.vision_model.detect_grass(combined_vision)
             
             if detect_dragonfly(combined_vision):
                 print("Dragonfly detected!")
