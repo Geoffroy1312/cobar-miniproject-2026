@@ -2,6 +2,7 @@ MUJOCO_LOG.TXT
 demo_output/
 
 .idea/
+miniproject/submission/fly_unet_best.pth
 
 # Created by https://www.toptal.com/developers/gitignore/api/vim,emacs,macos,linux,windows,visualstudiocode,git,python,jupyternotebooks
 # Edit at https://www.toptal.com/developers/gitignore?templates=vim,emacs,macos,linux,windows,visualstudiocode,git,python,jupyternotebooks
