@@ -198,7 +198,7 @@ def contour_to_aversive_odor(best_contour):
 def odor_intensity_to_control_signal(
     odor_intensities,
     attractive_gain=-3000,
-    aversive_gain=1000,
+    aversive_gain=1500,
 ):
     """Convert odor sensor readings to a turning control signal."""
 
@@ -231,9 +231,9 @@ def odor_intensity_to_control_signal(
     effective_bias_norm = np.tanh(effective_bias**2) * np.sign(effective_bias)
     assert np.sign(effective_bias_norm) == np.sign(effective_bias)
 
-    control_signal = np.ones(2)*1.7
+    control_signal = np.ones(2)*1.4
     side_to_modulate = int(effective_bias_norm > 0)
-    modulation_amount = np.abs(effective_bias_norm) * 0.8*1.7
+    modulation_amount = np.abs(effective_bias_norm) * 0.8*1.4
     control_signal[side_to_modulate] -= modulation_amount
 
     return control_signal
@@ -251,7 +251,7 @@ class Controller:
     def step(self, sim: MiniprojectSimulation):
         olfaction = sim.get_olfaction(sim.fly.name)
 
-        if self.step_count%100 == 0:
+        if self.step_count%70 == 0:
              
             vision = sim.get_raw_vision(sim.fly.name)
             combined_vision = np.hstack((vision[0], vision[1]))
@@ -274,11 +274,8 @@ class Controller:
                         best_score = score
                         self.best_contour = contour
         # ---------------------------------------------------------
-        fake_aversive_odors = []
-        for best in self.best_contours:
-            
-            fake_aversive_odors.append(contour_to_aversive_odor(best))
-        
+        fake_aversive_odors = contour_to_aversive_odor(self.best_contour)
+
         combined_signals = np.hstack((olfaction, fake_aversive_odors))
         
 
