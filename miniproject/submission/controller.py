@@ -258,6 +258,7 @@ class Controller:
             
             # Détection de tous les contours
             self.contours = detect_triangles_combined(combined_vision)
+            
             if detect_dragonfly(combined_vision):
                 print("Dragonfly detected!")
         
@@ -284,12 +285,9 @@ class Controller:
         # Génération des commandes 
         drives = odor_intensity_to_control_signal(combined_signals)
 
-        turning_left = bool(drives[0] < 1.0)
-        turning_right = bool(drives[1] < 1.0)
-
         joint_angles, adhesion = self.turning_controller.step(drives)
         
       
         self.step_count += 1
         # On retourne maintenant 5 éléments, incluant le best_contour
-        return joint_angles, adhesion, turning_right, turning_left,self.contours, self.best_contours
+        return joint_angles, adhesion,self.contours, self.best_contours
