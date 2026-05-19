@@ -2,22 +2,9 @@ import numpy as np
 from torch import dist
 from miniproject.simulation import MiniprojectSimulation
 from submission.vision_model import FlyVisionModel
+from submission.detect_dragon_fly import detecter_libellule_rouge
 import cv2
-
-def detect_dragonfly(img):
-    dragonfly_detected = False
-    
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    lower_red = np.array([0, 100, 100])
-    upper_red = np.array([10, 255, 255])
-    mask = cv2.inRange(hsv, lower_red, upper_red)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    if len(contours) > 0:
-        dragonfly_detected = True
-
-    
-    return dragonfly_detected
+from collections import deque
 
 
 def detect_triangles_combined(image):
@@ -195,15 +182,28 @@ class Controller:
         from flygym.examples.locomotion import TurningController
         self.turning_controller = TurningController(sim.timestep)
         self.step_count = 0
-        self.best_contours = []
+        self.best_contour = None
         self.contours = []
+        self.dragonfly_contours = []
+
         self.vision_model = FlyVisionModel()
+
+        self.state = "GO_TO_FOOD"
+        self.evasion_step = 0
+        self.EVATION_MAX_STEP = 3000
+        #self.recent_drives = deque(maxlen=15000)
+
 
         
     def step(self, sim: MiniprojectSimulation):
         olfaction = sim.get_olfaction(sim.fly.name)
+        vision = sim.get_raw_vision(sim.fly.name)
+        combined_vision = np.hstack((vision[0], vision[1]))
+        
+        
 
-        if self.step_count%70 == 0:
+        
+        if self.step_count%150 == 0:
              
             vision = sim.get_raw_vision(sim.fly.name)
             combined_vision = np.hstack((vision[0], vision[1]))
@@ -211,8 +211,14 @@ class Controller:
             # Utiliser le modèle de vision pour détecter l'herbe
             self.contours = self.vision_model.detect_grass(combined_vision)
             
-            if detect_dragonfly(combined_vision):
-                print("Dragonfly detected!")
+            dragonfly, self.dragonfly_contours = detecter_libellule_rouge(combined_vision)
+            if dragonfly :
+                self.state = "EVASION"
+                self.evasion_step = 0
+            
+            
+            
+            
         
             best_score = -1
             
@@ -233,10 +239,27 @@ class Controller:
 
         # Génération des commandes 
         drives = odor_intensity_to_control_signal(combined_signals)
+        
+
+
+        if self.state == "EVASION":
+            
+            if self.evasion_step < self.EVATION_MAX_STEP: #and len(self.recent_drives) > 0
+                drives = np.ones(2)*-1.2
+                self.evasion_step += 1
+            else:
+                
+                self.state = "GO_TO_FOOD" 
+        # else:
+            
+        #     self.recent_drives.append(drives) 
+
+
+
 
         joint_angles, adhesion = self.turning_controller.step(drives)
         
       
         self.step_count += 1
         # On retourne maintenant 5 éléments, incluant le best_contour
-        return joint_angles, adhesion,self.contours, self.best_contours
+        return joint_angles, adhesion,self.contours, self.best_contour, self.dragonfly_contours, self.state
