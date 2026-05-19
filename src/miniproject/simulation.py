@@ -139,6 +139,7 @@ class MiniprojectSimulation(Simulation):
         self.enable_dragonfly = level in (4,)
         rng = np.random.default_rng(seed)
         self.rng = rng
+        self.grass_positions = None
 
         fly = create_fly()
         cams = []
@@ -160,14 +161,14 @@ class MiniprojectSimulation(Simulation):
         world.add_banana_slice(pos=banana_xy)
 
         if self.enable_grass:
-            grass_positions = get_grass_positions(
+            self.grass_positions = get_grass_positions(
                 target_position=banana_xy,
                 target_clearance_radius=8.0,
                 grass_clearance_radius=6.0,
                 fly_clearance_radius=8.0,
                 rng=rng,
             )
-            for xy in grass_positions:
+            for xy in self.grass_positions:
                 world.add_grass_blade((*xy, world.get_height(*xy)))
 
         if self.enable_dragonfly:
