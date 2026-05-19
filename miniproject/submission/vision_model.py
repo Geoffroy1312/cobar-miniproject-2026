@@ -155,14 +155,22 @@ class FlyVisionModel :
                 contour_center_x = np.mean(approx[:, 0, 0])
                 distance = (contour_center_x - center_image_x)
                 size = (approx[:, 0, 1].max() - approx[:, 0, 1].min())
-                if abs(distance) < 20 :
-                    distance = abs(distance)
+                # if abs(distance) < 20 :
+                #     distance = abs(distance)
                     
+                # if distance == 0 :
+                #     #avoid division by zero 
+                #     score = np.inf
+                # else :
+                #     score = size / (abs(distance)*0.5)
+
                 if distance == 0 :
                     #avoid division by zero 
                     score = np.inf
                 else :
-                    score = size / (abs(distance)*0.5)
+                    score = size / (abs(distance))
+
+                
 
                 big_contours.append([approx , distance , size, score])
 
