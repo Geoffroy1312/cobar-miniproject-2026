@@ -75,9 +75,9 @@ def odor_intensity_to_control_signal(
             control_signal[0] += modulation_amount
 
     elif state == "GO_TO_FOOD":
-        control_signal = np.ones(2)*1.4
+        control_signal = np.ones(2)*1.0
         side_to_modulate = int(effective_bias_norm > 0)
-        modulation_amount = np.abs(effective_bias_norm) * 0.8 * 1.4
+        modulation_amount = np.abs(effective_bias_norm) * 0.8 * 1.0
         if side_to_modulate == 0:
             control_signal[side_to_modulate] -= modulation_amount
             control_signal[1] += modulation_amount
