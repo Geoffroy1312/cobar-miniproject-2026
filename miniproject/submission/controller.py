@@ -75,9 +75,9 @@ def odor_intensity_to_control_signal(
             control_signal[0] += modulation_amount
 
     elif state == "GO_TO_FOOD":
-        control_signal = np.ones(2)*1.0
+        control_signal = np.ones(2)*1.3
         side_to_modulate = int(effective_bias_norm > 0)
-        modulation_amount = np.abs(effective_bias_norm) * 0.8 * 1.0
+        modulation_amount = np.abs(effective_bias_norm) * 0.8 * 1.3
         if side_to_modulate == 0:
             control_signal[side_to_modulate] -= modulation_amount
             control_signal[1] += modulation_amount
@@ -86,7 +86,7 @@ def odor_intensity_to_control_signal(
             control_signal[0] += modulation_amount
 
     elif state == "EVASION":
-        control_signal = np.ones(2)*-1.3
+        control_signal = np.ones(2)*-0.5
 
 
     return control_signal
@@ -166,7 +166,7 @@ class Controller:
 
                 signals = np.hstack((olfaction, fake_aversive_odors))
 
-                gain_aversive = 1600
+                gain_aversive = 2000
 
                 
 
@@ -192,7 +192,7 @@ class Controller:
         # debuggage
         #drives = np.zeros(2)
         forces = sim.get_external_force(sim.fly.name, subtract_adhesion_force = True)
-        joint_angles, adhesion = self.turning_controller.step(drives, forces)
+        joint_angles, adhesion = self.turning_controller.step(drives)
 
 
         self.step_count += 1
