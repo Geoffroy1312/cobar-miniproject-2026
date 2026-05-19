@@ -112,5 +112,5 @@ class TurningController:
             adhesion[i] = self.preprogrammed_steps.get_adhesion_onoff(
                 leg, self.cpg_network.curr_phases[i]
             )
-
+        
         return joint_angles.ravel(), adhesion
