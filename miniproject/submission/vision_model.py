@@ -1,10 +1,5 @@
 import numpy as np
-from torch import dist
 import cv2
-
-
-
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -124,55 +119,59 @@ class FlyUNet(nn.Module):
         return self.out_conv(u5)
 
 
-class FlyVisionModel :
+class FlyVisionModel:
     def __init__(self):
         self.model = FlyUNet()
-        # Charger les poids pré-entraînés (assurez-vous que le chemin est correct)
+        # Charger les poids pré-entraînés
         self.model.load_state_dict(torch.load("submission/fly_unet_best.pth", map_location=torch.device('cpu')))
         self.model.eval()  # Mettre le modèle en mode évaluation
 
-    def detect_grass(self,image):
+    def get_1d_occupancy_grid(self, image, kernel_size=(12, 12), safety_margin=51):
         """
-        Détecte les triangles sur une image concaténée (gauche + droite).
-        La distance retournée est négative si le triangle est à gauche, positive s'il est à droite.
+        Génère une grille d'occupation 1D à partir de la vision.
         """
-        image_tensor = torch.from_numpy(image).float().permute(2, 0, 1).unsqueeze(0) / 255.0  # Convertir en tensor et normaliser
-        isolated = self.model(image_tensor)  # Passer l'image à travers le modèle pour obtenir la segmentation
-        isolated = (isolated.squeeze().detach().numpy() > 0.5).astype(np.uint8) * 255  # Seuil pour obtenir une image binaire
-        # Détecte les contours
-        contours, _ = cv2.findContours(isolated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        image_tensor = torch.from_numpy(image).float().permute(2, 0, 1).unsqueeze(0) / 255.0
         
-        # Centre de l'image globale
-        center_image_x = image.shape[1] / 2.0
-        
-        
-        big_contours = []
-        for contour in contours:
-            epsilon = 0.04 * cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, epsilon, True)
+        with torch.no_grad():
+            isolated = self.model(image_tensor)
             
-            if len(approx) >= 2 and cv2.arcLength(approx, True) > 15:
-                contour_center_x = np.mean(approx[:, 0, 0])
-                distance = (contour_center_x - center_image_x)
-                size = (approx[:, 0, 1].max() - approx[:, 0, 1].min())
-                # if abs(distance) < 20 :
-                #     distance = abs(distance)
-                    
-                # if distance == 0 :
-                #     #avoid division by zero 
-                #     score = np.inf
-                # else :
-                #     score = size / (abs(distance)*0.5)
-
-                if distance == 0 :
-                    #avoid division by zero 
-                    score = np.inf
-                else :
-                    score = size / (abs(distance))
-
-                
-
-                big_contours.append([approx , distance , size, score])
-
+        mask = (isolated.squeeze().cpu().numpy() > 0.5).astype(np.uint8) * 255
         
-        return big_contours
+        clean_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, kernel_size)
+        cleaned_mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, clean_kernel)
+        
+        if safety_margin > 0:
+            safety_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (safety_margin, safety_margin))
+            cleaned_mask = cv2.dilate(cleaned_mask, safety_kernel, iterations=1)
+        
+        occupancy_1d = (np.max(cleaned_mask, axis=0) > 0).astype(np.uint8)
+        
+        return occupancy_1d
+
+    def get_debug_masks(self, image, kernel_size=(15, 15), safety_margin=51):
+        """
+        Renvoie les masques binaires intermédiaires pour la visualisation et le débuggage.
+        
+        Returns:
+            raw_mask: Sortie brute du réseau U-Net (binaire 0 ou 255).
+            cleaned_mask: Masque après l'ouverture morphologique (suppression du bruit).
+            final_mask: Masque après la dilatation (marge de sécurité).
+        """
+        # 1. Inférence brute
+        image_tensor = torch.from_numpy(image).float().permute(2, 0, 1).unsqueeze(0) / 255.0
+        with torch.no_grad():
+            isolated = self.model(image_tensor)
+        raw_mask = (isolated.squeeze().cpu().numpy() > 0.5).astype(np.uint8) * 255
+        
+        # 2. Nettoyage (Ouverture morphologique)
+        clean_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, kernel_size)
+        cleaned_mask = cv2.morphologyEx(raw_mask, cv2.MORPH_OPEN, clean_kernel)
+        
+        # 3. Marge de sécurité (Dilatation)
+        if safety_margin > 0:
+            safety_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (safety_margin, safety_margin))
+            final_mask = cv2.dilate(cleaned_mask, safety_kernel, iterations=1)
+        else:
+            final_mask = cleaned_mask.copy()
+            
+        return raw_mask, cleaned_mask, final_mask

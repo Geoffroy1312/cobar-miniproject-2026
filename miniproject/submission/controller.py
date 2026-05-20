@@ -1,200 +1,156 @@
 import numpy as np
-from torch import dist
 from miniproject.simulation import MiniprojectSimulation
 from submission.vision_model import FlyVisionModel
 from submission.detect_dragonfly import detect_dragonfly
 import cv2
 
-def contour_to_aversive_odor(best_contour):
-    """
-    Transforme l'unique meilleur contour en un signal 'olfactif' aversif.
-    """
-    fake_odor = np.zeros((4, 1))
-
-    if best_contour is not None:
-        # best_contour = [approx, distance, size]
-        distance = best_contour[1]
-        size = best_contour[2]
-
-        if distance < 0:
-            # Oeil gauche détecté -> stimuler le capteur aversif gauche
-            fake_odor[0, 0] += size
-        else:
-            # Oeil droit détecté -> stimuler le capteur aversif droit
-            fake_odor[1, 0] += size
-
-    return fake_odor
-
-
-def odor_intensity_to_control_signal(
-    odor_intensities,
-    state,
-    attractive_gain=-3500,
-    aversive_gain=1800
-):
-    """Convert odor sensor readings to a turning control signal."""
-
-    attractive_intensities = np.average(
-        odor_intensities[:, 0].reshape(2, 2), axis=0, weights=[9, 1]
-    )
-    attractive_bias = (
-        attractive_gain
-        * (attractive_intensities[0] - attractive_intensities[1])
-        / attractive_intensities.mean()
-        if attractive_intensities.mean() != 0
-        else 0
-    )
-
-    if odor_intensities.shape[1] > 1:
-        aversive_intensities = np.average(
-            odor_intensities[:, 1].reshape(2, 2), axis=0, weights=[10, 0]
-        )
-        aversive_bias = (
-            aversive_gain
-            * (aversive_intensities[0] - aversive_intensities[1])
-            / aversive_intensities.mean()
-            if aversive_intensities.mean() != 0
-            else 0
-        )
-    else:
-        aversive_bias = 0
-
-    effective_bias = aversive_bias + attractive_bias
-    effective_bias_norm = np.tanh(effective_bias**2) * np.sign(effective_bias)
-    assert np.sign(effective_bias_norm) == np.sign(effective_bias)
-
-    if state == "ALIGN_WITH_FOOD":
-        control_signal = np.zeros(2)
-        side_to_modulate = int(effective_bias_norm > 0)
-        modulation_amount = np.abs(effective_bias_norm)
-        if side_to_modulate == 0:
-            control_signal[side_to_modulate] -= modulation_amount
-            control_signal[1] += modulation_amount
-        else:
-            control_signal[side_to_modulate] -= modulation_amount
-            control_signal[0] += modulation_amount
-
-    elif state == "GO_TO_FOOD":
-        control_signal = np.ones(2)*1.3
-        side_to_modulate = int(effective_bias_norm > 0)
-        modulation_amount = np.abs(effective_bias_norm) * 0.8 * 1.3
-        if side_to_modulate == 0:
-            control_signal[side_to_modulate] -= modulation_amount
-            control_signal[1] += modulation_amount
-        else:
-            control_signal[side_to_modulate] -= modulation_amount
-            control_signal[0] += modulation_amount
-
-    elif state == "EVASION":
-        control_signal = np.ones(2)*-0.5
-
-
-    return control_signal
-
+import numpy as np
+import cv2
+from miniproject.simulation import MiniprojectSimulation
+from submission.vision_model import FlyVisionModel
+from submission.detect_dragonfly import detect_dragonfly
 
 class Controller:
     def __init__(self, sim: MiniprojectSimulation):
         from submission.turning_controller import TurningController
         self.turning_controller = TurningController(sim.timestep)
         self.step_count = 0
-        self.best_contour = None
+        
+        # Attributs conservés pour la compatibilité stricte du retour
         self.contours = []
+        self.best_contour = None
         self.dragonfly_contours = []
 
         self.vision_model = FlyVisionModel()
 
+        # Retour à votre logique de démarrage : on s'aligne d'abord
         self.state = "ALIGN_WITH_FOOD"
         self.previous_state = "ALIGN_WITH_FOOD"
         self.evasion_step = 0
         self.EVATION_MAX_STEP = 3000
-
+        self.smooth_bias = 0.0
+        
+        self.obstacle_cost = None
 
     def step(self, sim: MiniprojectSimulation):
         olfaction = sim.get_olfaction(sim.fly.name)
 
-        if self.step_count%70 == 0:
-
-            #get raw vision and combine both eyes
+        # 1. Mise à jour de la vision et des obstacles (tous les 70 pas)
+        if self.step_count % 70 == 0:
             vision = sim.get_raw_vision(sim.fly.name)
             combined_vision = np.hstack((vision[0], vision[1]))
 
-            #detect dragonfly and change state accordingly
             dragonfly, self.dragonfly_contours = detect_dragonfly(combined_vision)
-            if dragonfly :
-                #store previous state to come back to it later
-                if self.evasion_step == 0 :
+            if dragonfly:
+                if self.evasion_step == 0:
                     self.previous_state = self.state
                     self.state = "EVASION"
 
-            if self.state == "GO_TO_FOOD":
+            occupancy_1d = self.vision_model.get_1d_occupancy_grid(combined_vision)
+            
+            kernel_size = 181 
+            blurred = cv2.GaussianBlur(
+                occupancy_1d.astype(np.float32).reshape(1, -1), 
+                (kernel_size, 1), 
+                0
+            ).flatten()
+            
+            if blurred.max() > 0:
+                blurred /= blurred.max()
+            self.obstacle_cost = blurred
 
-                #detect grass contours
-                self.contours = self.vision_model.detect_grass(combined_vision)
+        if self.obstacle_cost is None:
+            self.obstacle_cost = np.zeros(sim.get_raw_vision(sim.fly.name)[0].shape[1] * 2)
 
-                #find the grass with the highest score to avoid it
-                best_score = -1
-                self.best_contour = None
+        # 2. Lecture des capteurs olfactifs
+        attractive_intensities = np.average(olfaction.reshape(2, 2), axis=0, weights=[9, 1])
+        left_olf = attractive_intensities[0]
+        right_olf = attractive_intensities[1]
+        total_olf = left_olf + right_olf
 
-                for contour in self.contours:
-                    score = contour[3]
-                    size = contour[2]
-
-                    if size > 190:  
-                        if score > best_score:
-                            best_score = score
-                            self.best_contour = contour
+        if total_olf > 1e-50:
+            raw_bias = (left_olf - right_olf) 
+            sensibilite_odeur = 10.0 
+            inst_bias = raw_bias * sensibilite_odeur # Biais instantané
+            
+            # Zone morte sur le biais instantané
+            if abs(inst_bias) < 0.15:
+                inst_bias = 0.0
                 
+            inst_bias = np.clip(inst_bias, -1.0, 1.0)
+            
+            # --- NOUVEAU : Filtre Passe-Bas (Lissage Exponentiel) ---
+            # alpha = 0.1 signifie que le biais final est composé de 10% de la nouvelle mesure
+            # et de 90% de l'ancienne position. Ajustez vers 0.05 pour lisser encore plus.
+            alpha = 0.1 
+            if not hasattr(self, 'smooth_bias'):
+                self.smooth_bias = 0.0
+            self.smooth_bias = alpha * inst_bias + (1.0 - alpha) * self.smooth_bias
+        else:
+            self.smooth_bias = 0.0
 
+        # On utilise maintenant self.smooth_bias pour toute la suite de la logique
+        bias_to_use = self.smooth_bias
 
-        if self.state == "ALIGN_WITH_FOOD":
-                signals = olfaction
-                gain_aversive = 0
-
-                attractive_intensities = np.average(
-                    olfaction.reshape(2, 2), axis=0, weights=[9, 1]
-                )
-              
-               
-
-                if (attractive_intensities[0]/attractive_intensities[1]) > 0.99 and (attractive_intensities[0]/attractive_intensities[1]) < 1.01:
-                    print("Attractive intensities left: ", attractive_intensities[0])
-                    print("Attractive intensities right: ", attractive_intensities[1])
-                    self.state = "GO_TO_FOOD"
-
-        elif self.state == "GO_TO_FOOD":
-                fake_aversive_odors = contour_to_aversive_odor(self.best_contour)
-
-                signals = np.hstack((olfaction, fake_aversive_odors))
-
-                gain_aversive = 2000
-
-                
-
-        elif self.state == "EVASION":
-            signals = olfaction
-            gain_aversive = 0
-            if self.evasion_step < self.EVATION_MAX_STEP: #and len(self.recent_drives) > 0
+        # 3. GESTION DES ÉTATS
+        if self.state == "EVASION":
+            drives = np.array([-0.5, -0.5])
+            if self.evasion_step < self.EVATION_MAX_STEP:
                 self.evasion_step += 1
             else:
-                #go back to previous state
                 self.state = self.previous_state
                 self.evasion_step = 0
 
+        elif self.state == "ALIGN_WITH_FOOD":
+            drives = np.zeros(2)
+            # Utilisation du biais lissé pour éviter d'osciller sur place
+            if abs(bias_to_use) < 0.05:
+                print("Aligné avec succès ! Passage en GO_TO_FOOD")
+                self.state = "GO_TO_FOOD"
+            else:
+                if bias_to_use > 0:  
+                    drives[0] = -0.5
+                    drives[1] = 0.5
+                else:         
+                    drives[0] = 0.5
+                    drives[1] = -0.5
 
-        drives = odor_intensity_to_control_signal(signals,self.state, aversive_gain=gain_aversive)
-        # print("state au premier step: ", self.state)
-        # print("olfaction au premier step: ", olfaction)
-        # print("attractive_intensities au premier step: ", attractive_intensities)
+        elif self.state == "GO_TO_FOOD":
+            W = len(self.obstacle_cost)
+            
+            # x_target utilise maintenant la version filtrée et ultra stable
+            x_target = (W / 2) - bias_to_use * (W / 2)
+            x_target = np.clip(x_target, 0, W - 1)
+            
+            max_dist = max(x_target, W - 1 - x_target)
+            if max_dist == 0: 
+                max_dist = 1.0
 
-        # Génération des commandes
-        
+            # Parabole stabilisée
+            odor_cost = ((np.arange(W) - x_target) / max_dist) ** 2
 
-        # debuggage
-        #drives = np.zeros(2)
-        forces = sim.get_external_force(sim.fly.name, subtract_adhesion_force = True)
+            poids_obstacle = 2.5
+            poids_odeur = 1.0
+            total_cost = (poids_obstacle * self.obstacle_cost) + (poids_odeur * odor_cost)
+
+            best_column = np.argmin(total_cost)
+            error = (best_column - W / 2) / (W / 2)
+
+            base_speed = 1.3
+            steering_gain = 3.0
+            
+            drives = np.ones(2) * base_speed
+            drives[0] += error * steering_gain
+            drives[1] -= error * steering_gain
+            drives = np.clip(drives, 0.1, 2.0)
+
+        # Envoi des commandes
+        forces = sim.get_external_force(sim.fly.name, subtract_adhesion_force=True)
         joint_angles, adhesion = self.turning_controller.step(drives)
 
-
         self.step_count += 1
-        # On retourne maintenant 5 éléments, incluant le best_contour
-        return joint_angles, adhesion,self.contours, self.best_contour, self.dragonfly_contours, self.state, drives, forces 
+        
+        if self.state != "GO_TO_FOOD" or 'total_cost' not in locals():
+            total_cost = np.zeros(sim.get_raw_vision(sim.fly.name)[0].shape[1] * 2)
+
+        return joint_angles, adhesion, self.contours, self.best_contour, self.dragonfly_contours, self.state, total_cost
