@@ -68,10 +68,19 @@ class Controller:
         right_olf = attractive_intensities[1]
         total_olf = left_olf + right_olf
 
-        if total_olf > 1e-50:
-            raw_bias = (left_olf - right_olf) 
-            sensibilite_odeur = 10.0 
-            inst_bias = raw_bias * sensibilite_odeur # Biais instantané
+        if total_olf > 1e-45: # Marge de sécurité
+            # --- LA MAGIE DU LOGARITHME ---
+            # On ajoute un epsilon (1e-50) pour éviter l'erreur mathématique log(0)
+            log_left = np.log(left_olf + 1e-50)
+            log_right = np.log(right_olf + 1e-50)
+            
+            # La différence des logs reste constante peu importe la distance
+            log_diff = log_left - log_right
+            
+            # Nouveau gain : Beaucoup plus petit ! 
+            # Une diff de 1.0 en log signifie qu'une antenne sent 2.7x plus fort que l'autre.
+            sensibilite_odeur = 0.5
+            inst_bias = log_diff * sensibilite_odeur
             
             # Zone morte sur le biais instantané
             if abs(inst_bias) < 0.15:
@@ -79,15 +88,22 @@ class Controller:
                 
             inst_bias = np.clip(inst_bias, -1.0, 1.0)
             
-            # --- NOUVEAU : Filtre Passe-Bas (Lissage Exponentiel) ---
-            # alpha = 0.1 signifie que le biais final est composé de 10% de la nouvelle mesure
-            # et de 90% de l'ancienne position. Ajustez vers 0.05 pour lisser encore plus.
+            # Filtre Passe-Bas (Lissage Exponentiel)
             alpha = 0.1 
             if not hasattr(self, 'smooth_bias'):
-                self.smooth_bias = 0.0
+                # CORRECTION : On initialise avec la vraie valeur, pas avec 0.0
+                # Sinon elle croit qu'elle est alignée dès le premier pas !
+                self.smooth_bias = inst_bias
+                
             self.smooth_bias = alpha * inst_bias + (1.0 - alpha) * self.smooth_bias
         else:
-            self.smooth_bias = 0.0
+            if not hasattr(self, 'smooth_bias'):
+                self.smooth_bias = 0.0
+            # S'il n'y a plus aucune odeur, on ramène le biais vers 0 doucement
+            self.smooth_bias = 0.1 * 0.0 + 0.9 * self.smooth_bias
+
+        # On utilise le biais lissé pour la suite
+        bias_to_use = self.smooth_bias
 
         # On utilise maintenant self.smooth_bias pour toute la suite de la logique
         bias_to_use = self.smooth_bias
@@ -102,13 +118,14 @@ class Controller:
                 self.evasion_step = 0
 
         elif self.state == "ALIGN_WITH_FOOD":
+            bias_to_use_align = bias_to_use
             drives = np.zeros(2)
             # Utilisation du biais lissé pour éviter d'osciller sur place
-            if abs(bias_to_use) < 0.05:
+            if abs(bias_to_use_align) < 0.0005:
                 print("Aligné avec succès ! Passage en GO_TO_FOOD")
                 self.state = "GO_TO_FOOD"
             else:
-                if bias_to_use > 0:  
+                if bias_to_use_align > 0:  
                     drives[0] = -0.5
                     drives[1] = 0.5
                 else:         
@@ -145,7 +162,8 @@ class Controller:
             drives = np.clip(drives, 0.1, 2.0)
 
         # Envoi des commandes
-        forces = sim.get_external_force(sim.fly.name, subtract_adhesion_force=True)
+        
+        
         joint_angles, adhesion = self.turning_controller.step(drives)
 
         self.step_count += 1
