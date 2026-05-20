@@ -155,8 +155,11 @@ class FlyVisionModel :
                 contour_center_x = np.mean(approx[:, 0, 0])
                 distance = (contour_center_x - center_image_x)
                 size = (approx[:, 0, 1].max() - approx[:, 0, 1].min())
-                # if abs(distance) < 20 :
-                #     distance = abs(distance)
+
+                if abs(distance) < 40:
+                    GRASS_IN_MIDDLE = True
+                else :
+                    GRASS_IN_MIDDLE = False
                     
                 # if distance == 0 :
                 #     #avoid division by zero 
@@ -175,4 +178,4 @@ class FlyVisionModel :
                 big_contours.append([approx , distance , size, score])
 
         
-        return big_contours
+        return big_contours, GRASS_IN_MIDDLE

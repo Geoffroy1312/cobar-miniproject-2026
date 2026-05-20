@@ -5,7 +5,7 @@ from submission.vision_model import FlyVisionModel
 from submission.detect_dragonfly import detect_dragonfly
 import cv2
 
-def contour_to_aversive_odor(best_contour):
+def contour_to_aversive_odor(best_contour, olfaction, grass_in_middle, direction):
     """
     Transforme l'unique meilleur contour en un signal 'olfactif' aversif.
     """
@@ -16,14 +16,33 @@ def contour_to_aversive_odor(best_contour):
         distance = best_contour[1]
         size = best_contour[2]
 
-        if distance < 0:
-            # Oeil gauche détecté -> stimuler le capteur aversif gauche
-            fake_odor[0, 0] += size
-        else:
-            # Oeil droit détecté -> stimuler le capteur aversif droit
-            fake_odor[1, 0] += size
+        attractive_intensities = np.average(
+            olfaction.reshape(2, 2), axis=0, weights=[9, 1]
+        )
 
-    return fake_odor
+        if grass_in_middle == True:
+            if direction == None:
+                if attractive_intensities[0] - attractive_intensities[1] > 0:
+                    fake_odor[0, 0] += size
+                    direction = "left"
+                else:
+                    fake_odor[1, 0] += size
+                    direction = "right"
+            else:
+                if direction == "left":
+                    fake_odor[0, 0] += size
+                else:
+                    fake_odor[1, 0] += size
+
+        else:
+            if distance < 0:
+                # Oeil gauche détecté -> stimuler le capteur aversif gauche
+                fake_odor[0, 0] += size
+            else:
+                # Oeil droit détecté -> stimuler le capteur aversif droit
+                fake_odor[1, 0] += size
+
+    return fake_odor, direction
 
 
 def odor_intensity_to_control_signal(
@@ -77,7 +96,7 @@ def odor_intensity_to_control_signal(
     elif state == "GO_TO_FOOD":
         control_signal = np.ones(2)*1.4
         side_to_modulate = int(effective_bias_norm > 0)
-        modulation_amount = np.abs(effective_bias_norm) * 0.8 * 1.0
+        modulation_amount = np.abs(effective_bias_norm) * 0.8 * 1.8
         if side_to_modulate == 0:
             control_signal[side_to_modulate] -= modulation_amount
             control_signal[1] += modulation_amount
@@ -86,8 +105,7 @@ def odor_intensity_to_control_signal(
             control_signal[0] += modulation_amount
 
     elif state == "EVASION":
-        control_signal = np.ones(2)*-1.5
-
+        control_signal = np.ones(2)*-0.8
 
     return control_signal
 
@@ -109,6 +127,10 @@ class Controller:
         self.evasion_step = 0
         self.EVATION_MAX_STEP = 3000
 
+        self.GRASS_IN_MIDDLE = False
+        self.grass_step = 0
+        self.direction = None
+
 
     def step(self, sim: MiniprojectSimulation):
         olfaction = sim.get_olfaction(sim.fly.name)
@@ -128,10 +150,19 @@ class Controller:
                     self.state = "EVASION"
 
             if self.state == "GO_TO_FOOD":
-
                 #detect grass contours
-                self.contours = self.vision_model.detect_grass(combined_vision)
-
+                self.contours, self.GRASS_IN_MIDDLE = self.vision_model.detect_grass(combined_vision)
+                
+                if self.GRASS_IN_MIDDLE == True :
+                    self.grass_step = self.step_count
+                    #self.KEEP_DIRECTION = True
+                if self.GRASS_IN_MIDDLE == False :
+                    if (self.step_count - self.grass_step) < 500 and self.step_count > 500 :
+                        self.GRASS_IN_MIDDLE = True
+                    else :
+                        self.direction = None
+                        #self.KEEP_DIRECTION = False
+                    
                 #find the grass with the highest score to avoid it
                 best_score = -1
                 self.best_contour = None
@@ -144,9 +175,9 @@ class Controller:
                         if score > best_score:
                             best_score = score
                             self.best_contour = contour
+
+                    
                 
-
-
         if self.state == "ALIGN_WITH_FOOD":
                 signals = olfaction
                 gain_aversive = 0
@@ -155,21 +186,16 @@ class Controller:
                     olfaction.reshape(2, 2), axis=0, weights=[9, 1]
                 )
               
-               
-
                 if (attractive_intensities[0]/attractive_intensities[1]) > 0.99 and (attractive_intensities[0]/attractive_intensities[1]) < 1.01:
                     print("Attractive intensities left: ", attractive_intensities[0])
                     print("Attractive intensities right: ", attractive_intensities[1])
                     self.state = "GO_TO_FOOD"
 
         elif self.state == "GO_TO_FOOD":
-                fake_aversive_odors = contour_to_aversive_odor(self.best_contour)
-
-                signals = np.hstack((olfaction, fake_aversive_odors))
-
-                gain_aversive = 1200
-
                 
+                fake_aversive_odors, self.direction = contour_to_aversive_odor(self.best_contour,olfaction, self.GRASS_IN_MIDDLE, self.direction)
+                signals = np.hstack((olfaction, fake_aversive_odors))
+                gain_aversive = 1200
 
         elif self.state == "EVASION":
             signals = olfaction
