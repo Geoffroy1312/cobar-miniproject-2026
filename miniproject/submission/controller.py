@@ -10,7 +10,7 @@ def contour_to_aversive_odor(best_contour, olfaction, grass_in_middle, direction
     Transforme l'unique meilleur contour en un signal 'olfactif' aversif.
     """
     fake_odor = np.zeros((4, 1))
-
+    SIZE_IMAGE = 512
     if best_contour is not None:
         # best_contour = [approx, distance, size]
         distance = best_contour[1]
@@ -23,89 +23,84 @@ def contour_to_aversive_odor(best_contour, olfaction, grass_in_middle, direction
         if grass_in_middle == True:
             if direction == None:
                 if attractive_intensities[0] - attractive_intensities[1] > 0:
-                    fake_odor[0, 0] += size
+                    fake_odor[0, 0] += size/SIZE_IMAGE
                     direction = "left"
                 else:
-                    fake_odor[1, 0] += size
+                    fake_odor[1, 0] += size/SIZE_IMAGE
                     direction = "right"
             else:
                 if direction == "left":
-                    fake_odor[0, 0] += size
+                    fake_odor[0, 0] += size/SIZE_IMAGE
                 else:
-                    fake_odor[1, 0] += size
+                    fake_odor[1, 0] += size/SIZE_IMAGE
 
         else:
             if distance < 0:
                 # Oeil gauche détecté -> stimuler le capteur aversif gauche
-                fake_odor[0, 0] += size
+                fake_odor[0, 0] += size/SIZE_IMAGE
             else:
                 # Oeil droit détecté -> stimuler le capteur aversif droit
-                fake_odor[1, 0] += size
+                fake_odor[1, 0] += size/SIZE_IMAGE
 
     return fake_odor, direction
 
 
+import numpy as np
+
 def odor_intensity_to_control_signal(
     odor_intensities,
     state,
-    attractive_gain=-3500,
-    aversive_gain=1800
+    attractive_gain=-500.0,  # Scaled way down for log differences
+    aversive_gain=1.3,     # Scaled way down for log differences
+    epsilon=1e-6           # Prevents log(0) when outside the plume
 ):
     """Convert odor sensor readings to a turning control signal."""
-
+    
+    # 1. Attractive Drive (Logarithmic)
     attractive_intensities = np.average(
         odor_intensities[:, 0].reshape(2, 2), axis=0, weights=[9, 1]
     )
-    attractive_bias = (
-        attractive_gain
-        * (attractive_intensities[0] - attractive_intensities[1])
-        / attractive_intensities.mean()
-        if attractive_intensities.mean() != 0
-        else 0
+    # log(A/B) = log(A) - log(B). This naturally handles relative contrast.
+    attractive_bias = attractive_gain * (
+        np.log(attractive_intensities[0] + epsilon) - 
+        np.log(attractive_intensities[1] + epsilon)
     )
 
+    # 2. Aversive Drive (Logarithmic)
+    aversive_bias = 0
     if odor_intensities.shape[1] > 1:
         aversive_intensities = np.average(
             odor_intensities[:, 1].reshape(2, 2), axis=0, weights=[10, 0]
         )
-        aversive_bias = (
-            aversive_gain
-            * (aversive_intensities[0] - aversive_intensities[1])
-            / aversive_intensities.mean()
-            if aversive_intensities.mean() != 0
-            else 0
+        aversive_bias = aversive_gain * (
+            np.log(aversive_intensities[0] + epsilon) - 
+            np.log(aversive_intensities[1] + epsilon)
         )
-    else:
-        aversive_bias = 0
 
+    # 3. Combine and Normalize
     effective_bias = aversive_bias + attractive_bias
-    effective_bias_norm = np.tanh(effective_bias**2) * np.sign(effective_bias)
-    assert np.sign(effective_bias_norm) == np.sign(effective_bias)
+    
+    # np.tanh perfectly bounds to [-1, 1] and preserves the negative/positive sign.
+    effective_bias_norm = np.tanh(effective_bias)
+
+    # 4. Modulate Control Signal
+    control_signal = np.zeros(2)
+    side_to_modulate = int(effective_bias_norm > 0)
+    modulation_amount = np.abs(effective_bias_norm)
 
     if state == "ALIGN_WITH_FOOD":
-        control_signal = np.zeros(2)
-        side_to_modulate = int(effective_bias_norm > 0)
-        modulation_amount = np.abs(effective_bias_norm)
-        if side_to_modulate == 0:
-            control_signal[side_to_modulate] -= modulation_amount
-            control_signal[1] += modulation_amount
-        else:
-            control_signal[side_to_modulate] -= modulation_amount
-            control_signal[0] += modulation_amount
+        # control_signal is already zeros
+        control_signal[side_to_modulate] -= modulation_amount
+        control_signal[1 - side_to_modulate] += modulation_amount
 
     elif state == "GO_TO_FOOD":
-        control_signal = np.ones(2)*1.4
-        side_to_modulate = int(effective_bias_norm > 0)
-        modulation_amount = np.abs(effective_bias_norm) * 0.8 * 1.8
-        if side_to_modulate == 0:
-            control_signal[side_to_modulate] -= modulation_amount
-            control_signal[1] += modulation_amount
-        else:
-            control_signal[side_to_modulate] -= modulation_amount
-            control_signal[0] += modulation_amount
+        control_signal = np.ones(2) * 0.8
+        modulation_amount *= 0.8  # Keep your original scaling
+        control_signal[side_to_modulate] -= modulation_amount
+        control_signal[1 - side_to_modulate] += modulation_amount
 
     elif state == "EVASION":
-        control_signal = np.ones(2)*-0.8
+        control_signal = np.ones(2) * -0.8
 
     return control_signal
 
@@ -122,7 +117,7 @@ class Controller:
 
         self.vision_model = FlyVisionModel()
 
-        self.state = "ALIGN_WITH_FOOD"
+        self.state = "GO_TO_FOOD" #"ALIGN_WITH_FOOD"
         self.previous_state = "ALIGN_WITH_FOOD"
         self.evasion_step = 0
         self.EVATION_MAX_STEP = 3000
@@ -135,7 +130,7 @@ class Controller:
     def step(self, sim: MiniprojectSimulation):
         olfaction = sim.get_olfaction(sim.fly.name)
 
-        if self.step_count%70 == 0:
+        if self.step_count%200 == 0:
 
             #get raw vision and combine both eyes
             vision = sim.get_raw_vision(sim.fly.name)
@@ -171,7 +166,7 @@ class Controller:
                     score = contour[3]
                     size = contour[2]
 
-                    if size > 190:  
+                    if size > 210:  
                         if score > best_score:
                             best_score = score
                             self.best_contour = contour
@@ -195,7 +190,7 @@ class Controller:
                 
                 fake_aversive_odors, self.direction = contour_to_aversive_odor(self.best_contour,olfaction, self.GRASS_IN_MIDDLE, self.direction)
                 signals = np.hstack((olfaction, fake_aversive_odors))
-                gain_aversive = 1200
+                gain_aversive = 1.5
 
         elif self.state == "EVASION":
             signals = olfaction
@@ -210,18 +205,11 @@ class Controller:
 
         drives = odor_intensity_to_control_signal(signals,self.state, aversive_gain=gain_aversive)
         # print("state au premier step: ", self.state)
-        # print("olfaction au premier step: ", olfaction)
-        # print("attractive_intensities au premier step: ", attractive_intensities)
-
-        # Génération des commandes
         
-
-        # debuggage
-        #drives = np.zeros(2)
-        forces = sim.get_external_force(sim.fly.name, subtract_adhesion_force = True)
+       
         joint_angles, adhesion = self.turning_controller.step(drives)
 
 
         self.step_count += 1
         # On retourne maintenant 5 éléments, incluant le best_contour
-        return joint_angles, adhesion,self.contours, self.best_contour, self.dragonfly_contours, self.state, drives, forces 
+        return joint_angles, adhesion,self.contours, self.best_contour, self.dragonfly_contours, self.state, drives 
