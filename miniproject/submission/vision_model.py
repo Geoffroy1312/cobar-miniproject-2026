@@ -145,7 +145,7 @@ class FlyVisionModel :
         # Centre de l'image globale
         center_image_x = image.shape[1] / 2.0
         
-        
+        #GRASS_IN_MIDDLE = False
         big_contours = []
         for contour in contours:
             epsilon = 0.04 * cv2.arcLength(contour, True)
@@ -156,10 +156,10 @@ class FlyVisionModel :
                 distance = (contour_center_x - center_image_x)
                 size = (approx[:, 0, 1].max() - approx[:, 0, 1].min())
 
-                if abs(distance) < 40:
-                    GRASS_IN_MIDDLE = True
-                else :
-                    GRASS_IN_MIDDLE = False
+                # if abs(distance) < 70 and size > 150:
+                #     GRASS_IN_MIDDLE = True
+                # else :
+                #     GRASS_IN_MIDDLE = False
                     
                 # if distance == 0 :
                 #     #avoid division by zero 
@@ -178,4 +178,4 @@ class FlyVisionModel :
                 big_contours.append([approx , distance , size, score])
 
         
-        return big_contours, GRASS_IN_MIDDLE
+        return big_contours #, GRASS_IN_MIDDLE
