@@ -28,14 +28,14 @@ def parse_args():
         "-l",
         "--level",
         type=int,
-        default=4,
+        default=2,
         help="The level of the simulation to run. Default is 0.",
     )
     parser.add_argument(
         "-s",
         "--seed",
         type=int,
-        default=0,
+        default=1,
         help="The random seed for the simulation. Default is 0.",
     )
     parser.add_argument(
