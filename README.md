@@ -1,3 +1,10 @@
+** !!!WARNING!!! **
+
+It is necessary to put fly_unet_best.pth in the submission folder before running the code.
+We sent the file by email, because it is too big to push it on github
+
+---
+
 # BIOENG 456: Controlling Behavior in Animals and Robots
 
 Welcome to BIOENG 456: **Co**ntrolling **B**ehavior in **A**nimals and **R**obots (CoBAR)! In this course, we will program [NeuroMechFly 2.0](https://www.nature.com/articles/s41592-024-02497-y) (a digital twin of the adult fruit fly *Drosophila melanogaster*) to interact with the environment and perform complex behaviors.
