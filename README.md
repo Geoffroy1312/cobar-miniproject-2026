@@ -1,7 +1,7 @@
 # **!!!WARNING!!!**
 
 It is necessary to put fly_unet_best.pth in the submission folder before running the code.
-We sent the file by email, because it is too big to push it on github
+We sent the file by email, because it is too big to push it on github.
 
 ---
 
