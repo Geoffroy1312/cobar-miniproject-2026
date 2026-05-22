@@ -1,3 +1,11 @@
+# **!!!WARNING!!!**
+
+It is necessary to put fly_unet_best.pth in the submission folder before running the code.
+We sent the file by email, because it is too big to push it on github.
+
+---
+
+
 # Miniproject for BIOENG-456: Controlling behavior in animals and robots
 
 Welcome to the Miniproject for BIOENG-456!
